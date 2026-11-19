@@ -64,7 +64,9 @@ Both rungs use `enc_layers=0` (embedding lookup), `dec_layers=1`, four decoder h
 
 ## Install
 
-CPU is enough for the smoke dry loop.
+CPU is enough for the smoke dry loop. On a machine with CUDA, `eval` and `loop` use the GPU automatically (`--device auto`). Pass `--device cuda` to require CUDA, or `--device cpu` to force the CPU.
+
+有 CUDA 的機器上，`eval` 和 `loop` 會自動用 GPU。加上 `--device cuda` 可強制要求 CUDA。
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -79,7 +81,7 @@ Synthetic paragraphs are built in. They are not MiniMind text. `--demo` forces a
 ```bash
 python -m ncm_iwsp pack --demo --config configs/smoke.yaml --out cache/smoke.pt
 python -m ncm_iwsp eval --config configs/smoke.yaml --packed cache/smoke.pt --iteration 0
-python -m ncm_iwsp loop --config configs/smoke.yaml --packed cache/smoke.pt --iters 3 --out runs/smoke
+python -m ncm_iwsp loop --config configs/smoke.yaml --packed cache/smoke.pt --iters 3 --out runs/smoke --device cuda
 ```
 
 Rung 1, still without the corpus, using the byte pretok:

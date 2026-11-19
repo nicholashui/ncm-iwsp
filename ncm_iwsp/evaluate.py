@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 
 from ncm_iwsp.build import lock_for_eval
+from ncm_iwsp.device import resolve_device
 
 # Fixed prompts for the qualitative hook. Prefix length in the pilot configs is 1,
 # so a prompt contributes at most one token; level 0 still comes from the unigram.
@@ -147,15 +148,17 @@ def evaluate_windows(
     max_windows: int = 32,
     n_generate: int = 2,
     temperature: float = 0.0,
+    device: str | torch.device | None = "auto",
 ) -> dict:
     """Score one packed split. ``train_windows`` is the frozen visible train set.
 
     Pass visible windows here when computing the agent scalar. Pass hidden
     windows only from the operator log, never into ``write_weights``.
+    ``device`` is ``auto`` (CUDA when available), ``cuda``, or ``cpu``.
     """
     lock_for_eval(vqvae)
     lock_for_eval(generator)
-    device = torch.device("cpu")
+    device = resolve_device(device)
     vqvae.to(device)
     generator.to(device)
     windows = windows.long().to(device)
@@ -306,16 +309,20 @@ def evaluate_windows(
         "codebook_usage": usage,
         "baselines": baselines,
         "scalar": level_stats["mean_level_ce"],
+        "device": str(device),
     }
 
 
 def _qualitative(pretok, vqvae, generator, train_idx, visible, n_generate, temperature, eos_id, pad_id):
     levels = list(vqvae.vq.levels)
     vocab0 = int(vqvae.vq.vqvae_vocab_sizes[0])
-    l0_codes = train_idx[:, : levels[0]].reshape(-1)
+    # Sample on CPU so the seed stays stable across devices, then move codes
+    # onto the same device as the modules.
+    l0_codes = train_idx[:, : levels[0]].reshape(-1).cpu()
     counts = torch.bincount(l0_codes.long(), minlength=vocab0).float()
     probs = (counts + 1.0) / (counts.sum() + vocab0)
-    device = visible.device
+    model_device = next(vqvae.parameters()).device
+    del visible  # only used by callers to keep the signature stable
     samples = []
     generator_seed = torch.Generator(device="cpu")
     generator_seed.manual_seed(0)
@@ -331,7 +338,7 @@ def _qualitative(pretok, vqvae, generator, train_idx, visible, n_generate, tempe
                 finer.append(
                     torch.randint(0, int(vocab), (n, int(level)), generator=generator_seed)
                 )
-            random_codes = torch.cat([l0, *finer], dim=1)
+            random_codes = torch.cat([l0, *finer], dim=1).to(model_device)
             random_text = vqvae.decode_logits(random_codes).argmax(dim=-1)
             for row in random_text:
                 samples.append(
@@ -340,8 +347,8 @@ def _qualitative(pretok, vqvae, generator, train_idx, visible, n_generate, tempe
                         "text": pretok.decode(row.tolist(), skip_special_tokens=True)[:180],
                     }
                 )
-            prefix = torch.full((n, prefix_len), int(eos_id), dtype=torch.long)
-            model_codes = generator.generate(l0, prefix, temperature=temperature, top_k=0, top_p=1.0)
+            prefix = torch.full((n, prefix_len), int(eos_id), dtype=torch.long, device=model_device)
+            model_codes = generator.generate(l0.to(model_device), prefix, temperature=temperature, top_k=0, top_p=1.0)
             model_text = vqvae.decode_logits(model_codes).argmax(dim=-1)
             for row in model_text:
                 samples.append(
@@ -353,10 +360,10 @@ def _qualitative(pretok, vqvae, generator, train_idx, visible, n_generate, tempe
             for prompt in FIXED_PROMPTS:
                 ids = pretok.encode(prompt) or [int(eos_id)]
                 prefix_ids = (ids + [int(pad_id)] * prefix_len)[:prefix_len]
-                prefix = torch.tensor([prefix_ids], dtype=torch.long)
+                prefix = torch.tensor([prefix_ids], dtype=torch.long, device=model_device)
                 draw = torch.multinomial(probs, levels[0], replacement=True, generator=generator_seed)
                 codes = generator.generate(
-                    draw.view(1, levels[0]), prefix, temperature=temperature, top_k=0, top_p=1.0
+                    draw.view(1, levels[0]).to(model_device), prefix, temperature=temperature, top_k=0, top_p=1.0
                 )
                 text = vqvae.decode_logits(codes).argmax(dim=-1)[0]
                 samples.append(
@@ -366,8 +373,6 @@ def _qualitative(pretok, vqvae, generator, train_idx, visible, n_generate, tempe
                         "text": pretok.decode(text.tolist(), skip_special_tokens=True)[:180],
                     }
                 )
-    # device is cpu; the name documents that generation does not move to a GPU.
-    del device
     return samples
 
 

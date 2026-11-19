@@ -72,9 +72,11 @@ def _cmd_eval(args) -> int:
         max_windows=int(cfg.get("eval", {}).get("max_windows", 32)),
         n_generate=int(cfg.get("eval", {}).get("n_generate", 2)),
         temperature=0.0,
+        device=args.device,
     )
     shown = {
         "split": args.split,
+        "device": metrics["device"],
         "iteration": int(args.iteration),
         "scalar": metrics["scalar"],
         "mean_level_ce": metrics["mean_level_ce"],
@@ -102,7 +104,7 @@ def _cmd_loop(args) -> int:
     cfg = load_config(args.config)
     cache = load_cache(args.packed)
     try:
-        summary = run_dry_loop(cfg, cache, args.writer, args.out, iterations=int(args.iters))
+        summary = run_dry_loop(cfg, cache, args.writer, args.out, iterations=int(args.iters), device=args.device)
     except AuditError as exc:
         print("audit rejected the writer:")
         for problem in exc.problems:
@@ -140,6 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--writer", default="ncm_iwsp/writers/stub.py")
     evaluate.add_argument("--iteration", type=int, default=0)
     evaluate.add_argument("--split", choices=("visible", "visible_train"), default="visible")
+    evaluate.add_argument("--device", default="auto", help="auto (CUDA if available), cuda, or cpu")
     evaluate.set_defaults(func=_cmd_eval)
 
     loop = sub.add_parser("loop", help="local propose/write/eval/audit dry loop")
@@ -148,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--writer", default="ncm_iwsp/writers/stub.py")
     loop.add_argument("--out", required=True)
     loop.add_argument("--iters", type=int, default=3)
+    loop.add_argument("--device", default="auto", help="auto (CUDA if available), cuda, or cpu")
     loop.set_defaults(func=_cmd_loop)
     return parser
 

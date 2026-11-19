@@ -16,6 +16,7 @@ from pathlib import Path
 
 from ncm_iwsp.audit import AuditError, audit_writer_module, state_dict_equal
 from ncm_iwsp.build import build_models, lock_for_eval, parameter_report
+from ncm_iwsp.device import resolve_device
 from ncm_iwsp.evaluate import agent_view, evaluate_windows
 
 
@@ -57,7 +58,7 @@ def assert_writer_is_deterministic(cfg, writer) -> None:
         )
 
 
-def run_dry_loop(cfg, cache: dict, writer_path: str | Path, out_dir: str | Path, iterations: int = 3) -> dict:
+def run_dry_loop(cfg, cache: dict, writer_path: str | Path, out_dir: str | Path, iterations: int = 3, device: str | None = None) -> dict:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     snapshots = out / "snapshots"
@@ -76,6 +77,7 @@ def run_dry_loop(cfg, cache: dict, writer_path: str | Path, out_dir: str | Path,
     batch_size = int(eval_cfg.get("batch_size", 4))
     max_windows = int(eval_cfg.get("max_windows", 32))
     n_generate = int(eval_cfg.get("n_generate", 2))
+    resolved_device = resolve_device(device if device is not None else eval_cfg.get("device", "auto"))
 
     pretok, vqvae, generator = _fresh(cfg)
     lock_for_eval(vqvae)
@@ -91,6 +93,7 @@ def run_dry_loop(cfg, cache: dict, writer_path: str | Path, out_dir: str | Path,
         max_windows=max_windows,
         n_generate=n_generate,
         temperature=0.0,
+        device=resolved_device,
     )
     baselines = {
         "random_init": {
@@ -171,6 +174,7 @@ def run_dry_loop(cfg, cache: dict, writer_path: str | Path, out_dir: str | Path,
             max_windows=max_windows,
             n_generate=0,
             temperature=0.0,
+            device=resolved_device,
         )
         hidden = evaluate_windows(
             pretok,
@@ -182,6 +186,7 @@ def run_dry_loop(cfg, cache: dict, writer_path: str | Path, out_dir: str | Path,
             max_windows=max_windows,
             n_generate=0,
             temperature=0.0,
+            device=resolved_device,
         )
         view = agent_view(visible)
         row = {
@@ -225,6 +230,7 @@ def run_dry_loop(cfg, cache: dict, writer_path: str | Path, out_dir: str | Path,
         "results_csv": str(csv_path),
         "hidden_log": str(hidden_log),
         "agent_scalar_name": "mean_level_ce",
+        "device": str(resolved_device),
     }
     _write_status(out, summary)
     return summary
