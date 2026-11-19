@@ -1,0 +1,51 @@
+# Rung 0. Same sizes as the ncm-gpt1 smoke template (read-only reference):
+# L=16, 4 VQ levels, codebook 64, embed 32, generator 2x32x4, char vocab 128.
+# This file is not a training config. There is no optimizer.
+name: NCM-MiniMind-iWSP-pilot-smoke
+seed: 0
+
+pretok:
+  kind: ascii
+  pad_vocab_to: 128
+
+tokenizer:
+  embed_dim: 32
+  context_length: 16
+  n_heads: 4          # official configs call this vqvae.n_layers; it is the head count
+  dropout: 0.1
+  enc_layers: 0
+  dec_layers: 1
+  use_qk_norm: true
+  pre_quant_groupnorm: 8
+  codebook_size: 64
+  levels: [1, 4, 8, 16]
+  learned_l1_sampling: true
+  learned_l1_cascade: true
+  learned_l1_cascade_base: 4
+  quant_resi:
+    enabled: true
+    ratio: 0.5
+
+generator:
+  n_layer: 2
+  n_head: 4
+  n_embd: 32
+  bias: true
+  dropout: 0.1
+  prefix_len: 1
+  rope_base: 100000
+  use_rope: true
+  use_level_encoding: true
+  use_qk_norm: true
+  attn_pattern: block_diagonal
+  predict_level0: false
+
+data:
+  hidden_pct: 10
+  visible_pct: 10
+  max_windows: 32
+
+eval:
+  batch_size: 4
+  max_windows: 16
+  n_generate: 2
